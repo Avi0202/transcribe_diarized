@@ -1,0 +1,12 @@
+yt-dlp
+fastapi
+uvicorn[standard]
+aiofiles 
+assemblyai
+transformers
+torch
+soundfile
+pydantic-settings
+openai
+pydub 
+ffmpeg-python
