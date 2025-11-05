@@ -91,14 +91,14 @@ class WhisperDiarizedTool(Toolkit):
         return await asyncio.to_thread(_run)
 
     # ---------------- TOOL FUNCTION ---------------
-    async def transcribe_diarized(self, youtube_url: str):
+    async def transcribe_diarized(self, youtube_url: str, flag: bool = True):
         """
-        Download → Compress → Diarize transcript using OpenAI API
+        Download → Compress → Transcribe or Diarize using OpenAI API
         """
         logger = await self._get_logger()
         MAX_MB = 25
 
-        logger.info("=== Starting diarized transcription ===")
+        logger.info(f"=== Starting {'diarized' if flag else 'standard'} transcription ===")
         logger.info(f"Input URL: {youtube_url}")
 
         try:
@@ -108,44 +108,61 @@ class WhisperDiarizedTool(Toolkit):
             logger.info(f"Downloaded to {audio_path}")
 
             size = os.path.getsize(audio_path) / 1e6
-            logger.info(f"Downloaded file size: {size:.2f} MB")
+            logger.info(f"Downloaded file size: {size:.2f} MB")
 
             # 2. Compress if needed
             if size > MAX_MB:
                 logger.info("Step 2: Compressing audio…")
                 audio_path = await self._compress_audio(audio_path)
                 size = os.path.getsize(audio_path) / 1e6
-                logger.info(f"Compressed size: {size:.2f} MB")
+                logger.info(f"Compressed size: {size:.2f} MB")
             else:
                 logger.info("Compression not needed")
 
-            # 3. Diarize
-            logger.info("Step 3: Calling OpenAI gpt‑4o‑transcribe‑diarize API…")
+            # 3. Transcribe / Diarize
+            model_name = "gpt-4o-transcribe-diarize" if flag else "gpt-4o-transcribe"
+            logger.info(f"Step 3: Calling OpenAI {model_name} API…")
+
             client = AsyncOpenAI(api_key=self.api_key)
             with open(audio_path, "rb") as f:
                 response = await client.audio.transcriptions.create(
-                    model="gpt-4o-transcribe-diarize",
+                    model=model_name,
                     file=f,
-                    response_format="diarized_json",
-                    chunking_strategy="auto"
+                    response_format="diarized_json" if flag else "json",
+                    chunking_strategy="auto",
                 )
 
             # 4. Parse
-            if not hasattr(response, "segments"):
-                raise HTTPException(status_code=500, detail="No 'segments' in response")
+            if flag:
+                if not hasattr(response, "segments") or not response.segments:
+                    raise HTTPException(status_code=500, detail="No 'segments' in diarized response")
 
-            segments = [{
-                "speaker": getattr(s, "speaker", None),
-                "start": getattr(s, "start", None),
-                "end": getattr(s, "end", None),
-                "text": getattr(s, "text", "").strip(),
-            } for s in response.segments]
+                segments = [{
+                    "speaker": getattr(s, "speaker", None),
+                    "start": getattr(s, "start", None),
+                    "end": getattr(s, "end", None),
+                    "text": getattr(s, "text", "").strip(),
+                } for s in response.segments]
 
-            summary = " ".join(f"{s['speaker']}: {s['text']}" for s in segments)
-            logger.info("=== Completed diarized transcription ===")
+                summary = " ".join(f"{s['speaker']}: {s['text']}" for s in segments if s["text"])
+
+            else:
+                text = getattr(response, "text", "").strip()
+                if not text:
+                    raise HTTPException(status_code=500, detail="Empty transcription text in response")
+
+                segments = [{
+                    "speaker": None,
+                    "start": None,
+                    "end": None,
+                    "text": text,
+                }]
+                summary = text
+
+            logger.info(f"=== Completed {'diarized' if flag else 'standard'} transcription ===")
 
             return {
-                "model": "gpt‑4o‑transcribe‑diarize",
+                "model": model_name,
                 "segments": segments,
                 "summary": summary
             }
