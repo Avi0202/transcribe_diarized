@@ -1,12 +1,14 @@
 yt-dlp
+youtube_dl
+pytube
 fastapi
 uvicorn[standard]
-aiofiles 
+aiofiles
 assemblyai
 transformers
 torch
 soundfile
 pydantic-settings
 openai
-pydub 
+pydub
 ffmpeg-python
